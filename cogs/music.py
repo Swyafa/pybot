@@ -381,4 +381,21 @@ class Music(commands.Cog):
         embed = discord.Embed(
             title="🎵 Now Playing",
             description=f"**{player.current.title}**",
-            color=discord.Color.
+            color=discord.Color.blue()
+        )
+        
+        embed.add_field(name="Source", value=player.current.source, inline=True)
+        
+        if player.current.duration:
+            mins, secs = divmod(player.current.duration, 60)
+            embed.add_field(name="Duration", value=f"{int(mins)}:{int(secs):02d}", inline=True)
+        
+        embed.add_field(name="Requested by", value=player.current.requester.mention, inline=True)
+        
+        if player.current.thumbnail:
+            embed.set_thumbnail(url=player.current.thumbnail)
+        
+        await ctx.send(embed=embed)
+
+async def setup(bot):
+    await bot.add_cog(Music(bot))
