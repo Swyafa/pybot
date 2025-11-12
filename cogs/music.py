@@ -9,14 +9,23 @@ import os
 
 logger = logging.getLogger('MusicCog')
 
-# Enhanced yt-dlp options - download for reliability
+# Check if cookies file exists
+COOKIES_FILE = 'cookies.txt'
+HAS_COOKIES = os.path.exists(COOKIES_FILE)
+
+if HAS_COOKIES:
+    logger.info("✅ YouTube cookies found - YouTube should work!")
+else:
+    logger.warning("⚠️ No cookies.txt found - YouTube may be blocked. Use SoundCloud or add cookies.")
+
+# Enhanced yt-dlp options with cookies
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'extractaudio': True,
     'audioformat': 'mp3',
     'outtmpl': 'downloads/%(extractor)s-%(id)s.%(ext)s',
     'restrictfilenames': True,
-    'noplaylist': False,
+    'noplaylist': False,  # Changed to False to support playlists
     'nocheckcertificate': True,
     'ignoreerrors': False,
     'logtostderr': False,
@@ -38,13 +47,16 @@ YTDL_OPTIONS = {
     'fragment_retries': 5,
     'skip_unavailable_fragments': True,
     'keepvideo': False,
-    # Convert to a format FFmpeg can handle
     'postprocessors': [{
         'key': 'FFmpegExtractAudio',
         'preferredcodec': 'opus',
         'preferredquality': '128',
     }],
 }
+
+# Add cookies if available
+if HAS_COOKIES:
+    YTDL_OPTIONS['cookiefile'] = COOKIES_FILE
 
 # Simple FFmpeg options
 FFMPEG_OPTIONS = {
@@ -53,7 +65,6 @@ FFMPEG_OPTIONS = {
 
 def get_ytdl():
     """Get a fresh YTDL instance"""
-    # Create downloads directory if it doesn't exist
     os.makedirs('downloads', exist_ok=True)
     return yt_dlp.YoutubeDL(YTDL_OPTIONS)
 
@@ -94,7 +105,6 @@ class MusicPlayer:
                 
                 loop = self.bot.loop or asyncio.get_event_loop()
                 
-                # Download the audio file
                 ytdl = get_ytdl()
                 
                 logger.info(f"Downloading: {self.current.title}")
@@ -111,21 +121,17 @@ class MusicPlayer:
                 if 'entries' in data:
                     data = data['entries'][0]
                 
-                # Get the downloaded file path
                 filename = ytdl.prepare_filename(data)
                 
-                # Check for the processed audio file
                 audio_file = None
                 base_name = os.path.splitext(filename)[0]
                 
-                # Look for common audio extensions
                 for ext in ['.opus', '.mp3', '.m4a', '.webm', '.ogg']:
                     potential_file = base_name + ext
                     if os.path.exists(potential_file):
                         audio_file = potential_file
                         break
                 
-                # If not found, use original filename
                 if not audio_file:
                     audio_file = filename
                 
@@ -136,12 +142,10 @@ class MusicPlayer:
                 
                 logger.info(f"Playing file: {audio_file}")
                 
-                # Play the downloaded file
                 source = discord.FFmpegPCMAudio(audio_file, **FFMPEG_OPTIONS)
                 
                 if self.voice_client and self.voice_client.is_connected():
                     def after_playing(error):
-                        # Clean up the file after playing
                         try:
                             if os.path.exists(audio_file):
                                 os.remove(audio_file)
@@ -153,7 +157,6 @@ class MusicPlayer:
                     
                     self.voice_client.play(source, after=after_playing)
                     
-                    # Send now playing message
                     embed = discord.Embed(
                         title="🎵 Now Playing",
                         description=f"**{self.current.title}**",
@@ -204,21 +207,26 @@ class Music(commands.Cog):
         else:
             return 'Search'
     
-    async def extract_info(self, query, prefer_soundcloud=False):
+    def is_playlist(self, url):
+        """Check if URL is a playlist"""
+        return 'playlist' in url.lower() or 'list=' in url or '/sets/' in url
+    
+    async def extract_info(self, query, prefer_soundcloud=False, allow_playlist=False):
         """Extract song info from various sources"""
         loop = self.bot.loop or asyncio.get_event_loop()
         
         try:
-            ytdl = get_ytdl()
+            ytdl_opts = YTDL_OPTIONS.copy()
+            ytdl_opts['noplaylist'] = not allow_playlist
             
-            # Check if it's a direct URL
+            ytdl = yt_dlp.YoutubeDL(ytdl_opts)
+            
             if query.startswith('http'):
                 data = await loop.run_in_executor(
                     None,
                     functools.partial(ytdl.extract_info, query, download=False)
                 )
             else:
-                # Use SoundCloud search if preferred
                 if prefer_soundcloud:
                     search_query = f"scsearch:{query}"
                 else:
@@ -229,10 +237,6 @@ class Music(commands.Cog):
                     functools.partial(ytdl.extract_info, search_query, download=False)
                 )
             
-            if data and 'entries' in data:
-                # Take first result
-                data = data['entries'][0]
-            
             return data
             
         except Exception as e:
@@ -241,12 +245,13 @@ class Music(commands.Cog):
     
     @commands.command(name='play', aliases=['p'])
     async def play(self, ctx, *, query: str):
-        """Play music from YouTube or SoundCloud
+        """Play a song or playlist
         
         Usage: 
-        !play <song name> - Search YouTube
-        !play <youtube url> - Play from YouTube
-        !play <soundcloud url> - Play from SoundCloud
+        !play <song name>
+        !play <youtube url>
+        !play <soundcloud url>
+        !play <youtube playlist url>
         """
         
         if not ctx.author.voice:
@@ -254,48 +259,35 @@ class Music(commands.Cog):
             return
         
         platform = self.detect_platform(query)
+        is_playlist = self.is_playlist(query)
         
-        # Show searching message
-        if platform == 'SoundCloud':
-            msg = await ctx.send(f"🔍 Loading from **SoundCloud**...")
-        elif platform == 'YouTube':
-            msg = await ctx.send(f"🔍 Loading from **YouTube**...")
-        elif platform == 'Spotify':
+        if platform == 'Spotify':
             await ctx.send("❌ Spotify links are not supported. Try searching the song name instead!")
             return
-        else:
-            msg = await ctx.send(f"🔍 Searching for: `{query[:50]}...`")
         
-        # Extract song info
-        data = await self.extract_info(query)
+        if is_playlist:
+            msg = await ctx.send(f"📋 Loading playlist from **{platform}**... This may take a moment.")
+        else:
+            if platform == 'SoundCloud':
+                msg = await ctx.send(f"🔍 Loading from **SoundCloud**...")
+            elif platform == 'YouTube':
+                if not HAS_COOKIES:
+                    await ctx.send("⚠️ YouTube may be blocked. Consider using SoundCloud or adding cookies.txt")
+                msg = await ctx.send(f"🔍 Loading from **YouTube**...")
+            else:
+                msg = await ctx.send(f"🔍 Searching for: `{query[:50]}...`")
+        
+        data = await self.extract_info(query, allow_playlist=is_playlist)
         
         if not data:
-            await msg.edit(content="❌ Could not find any results!\n\n**Tip:** Try:\n• Using a SoundCloud link: `!play <soundcloud url>`\n• Or use: `!sc <song name>` to search SoundCloud")
+            error_msg = "❌ Could not find any results!"
+            if platform == 'YouTube' and not HAS_COOKIES:
+                error_msg += "\n\n**YouTube is blocking requests.** Solutions:\n• Use SoundCloud: `!sc <song>`\n• Add cookies.txt file\n• Use SoundCloud links instead"
+            await msg.edit(content=error_msg)
             return
         
-        # Determine actual source from URL
-        webpage_url = data.get('webpage_url', '')
-        if 'soundcloud' in webpage_url.lower():
-            actual_source = '🎵 SoundCloud'
-        elif 'youtube' in webpage_url.lower():
-            actual_source = '📺 YouTube'
-        else:
-            actual_source = '🎵 Audio'
-        
-        # Create song object
-        song = Song(
-            url=webpage_url or data.get('url'),
-            title=data.get('title', 'Unknown Title'),
-            duration=data.get('duration'),
-            thumbnail=data.get('thumbnail'),
-            requester=ctx.author,
-            source=actual_source
-        )
-        
-        # Get player
         player = self.get_player(ctx)
         
-        # Connect to voice if not connected
         if not player.voice_client or not player.voice_client.is_connected():
             try:
                 player.voice_client = await ctx.author.voice.channel.connect()
@@ -304,30 +296,101 @@ class Music(commands.Cog):
                 await msg.edit(content=f"❌ Could not connect to voice: {str(e)}")
                 return
         
-        # Add to queue
-        player.queue.append(song)
+        # Handle playlist
+        if 'entries' in data and is_playlist:
+            entries = data['entries']
+            added_count = 0
+            
+            for entry in entries[:50]:  # Limit to 50 songs
+                if not entry:
+                    continue
+                
+                webpage_url = entry.get('webpage_url', '')
+                if 'soundcloud' in webpage_url.lower():
+                    source = '🎵 SoundCloud'
+                elif 'youtube' in webpage_url.lower():
+                    source = '📺 YouTube'
+                else:
+                    source = '🎵 Audio'
+                
+                song = Song(
+                    url=webpage_url or entry.get('url'),
+                    title=entry.get('title', 'Unknown'),
+                    duration=entry.get('duration'),
+                    thumbnail=entry.get('thumbnail'),
+                    requester=ctx.author,
+                    source=source
+                )
+                
+                player.queue.append(song)
+                added_count += 1
+            
+            embed = discord.Embed(
+                title="📋 Playlist Added",
+                description=f"Added **{added_count}** songs to queue",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Requested by", value=ctx.author.mention)
+            await msg.edit(content=None, embed=embed)
+            logger.info(f'Added playlist: {added_count} songs')
         
-        # Send confirmation embed
-        embed = discord.Embed(
-            title="✅ Added to Queue",
-            description=f"**{song.title}**",
-            color=discord.Color.green()
-        )
+        # Handle single song
+        else:
+            if 'entries' in data:
+                data = data['entries'][0]
+            
+            webpage_url = data.get('webpage_url', '')
+            if 'soundcloud' in webpage_url.lower():
+                actual_source = '🎵 SoundCloud'
+            elif 'youtube' in webpage_url.lower():
+                actual_source = '📺 YouTube'
+            else:
+                actual_source = '🎵 Audio'
+            
+            song = Song(
+                url=webpage_url or data.get('url'),
+                title=data.get('title', 'Unknown Title'),
+                duration=data.get('duration'),
+                thumbnail=data.get('thumbnail'),
+                requester=ctx.author,
+                source=actual_source
+            )
+            
+            player.queue.append(song)
+            
+            embed = discord.Embed(
+                title="✅ Added to Queue",
+                description=f"**{song.title}**",
+                color=discord.Color.green()
+            )
+            
+            embed.add_field(name="Source", value=song.source, inline=True)
+            embed.add_field(name="Position", value=f"#{len(player.queue)}", inline=True)
+            
+            if song.duration:
+                mins, secs = divmod(song.duration, 60)
+                embed.add_field(name="Duration", value=f"{int(mins)}:{int(secs):02d}", inline=True)
+            
+            embed.add_field(name="Requested by", value=ctx.author.mention, inline=False)
+            
+            if song.thumbnail:
+                embed.set_thumbnail(url=song.thumbnail)
+            
+            await msg.edit(content=None, embed=embed)
+            logger.info(f'Queued ({song.source}): {song.title}')
+    
+    @commands.command(name='playlist', aliases=['pl'])
+    async def playlist(self, ctx, *, url: str):
+        """Load an entire playlist
         
-        embed.add_field(name="Source", value=song.source, inline=True)
-        embed.add_field(name="Position", value=f"#{len(player.queue)}", inline=True)
+        Usage: !playlist <playlist url>
+        """
         
-        if song.duration:
-            mins, secs = divmod(song.duration, 60)
-            embed.add_field(name="Duration", value=f"{int(mins)}:{int(secs):02d}", inline=True)
+        if not self.is_playlist(url):
+            await ctx.send("❌ This doesn't look like a playlist URL!")
+            return
         
-        embed.add_field(name="Requested by", value=ctx.author.mention, inline=False)
-        
-        if song.thumbnail:
-            embed.set_thumbnail(url=song.thumbnail)
-        
-        await msg.edit(content=None, embed=embed)
-        logger.info(f'Queued ({song.source}): {song.title}')
+        await self.play(ctx, query=url)
     
     @commands.command(name='sc', aliases=['soundcloud'])
     async def soundcloud(self, ctx, *, query: str):
@@ -340,27 +403,21 @@ class Music(commands.Cog):
             await ctx.send("❌ You need to be in a voice channel!")
             return
         
-        msg = await ctx.send(f"🔍 Searching SoundCloud for: `{query[:50]}...`")
+        is_playlist = self.is_playlist(query)
         
-        # Force SoundCloud search
+        if is_playlist:
+            msg = await ctx.send(f"📋 Loading SoundCloud playlist...")
+        else:
+            msg = await ctx.send(f"🔍 Searching SoundCloud for: `{query[:50]}...`")
+        
         if not query.startswith('http'):
             query = f"scsearch:{query}"
         
-        data = await self.extract_info(query, prefer_soundcloud=True)
+        data = await self.extract_info(query, prefer_soundcloud=True, allow_playlist=is_playlist)
         
         if not data:
             await msg.edit(content="❌ Could not find any SoundCloud results!")
             return
-        
-        # Create song
-        song = Song(
-            url=data.get('webpage_url') or data.get('url'),
-            title=data.get('title', 'Unknown'),
-            duration=data.get('duration'),
-            thumbnail=data.get('thumbnail'),
-            requester=ctx.author,
-            source='🎵 SoundCloud'
-        )
         
         player = self.get_player(ctx)
         
@@ -371,20 +428,63 @@ class Music(commands.Cog):
                 await msg.edit(content=f"❌ Could not connect: {str(e)}")
                 return
         
-        player.queue.append(song)
+        # Handle playlist
+        if 'entries' in data and is_playlist:
+            entries = data['entries']
+            added_count = 0
+            
+            for entry in entries[:50]:
+                if not entry:
+                    continue
+                
+                song = Song(
+                    url=entry.get('webpage_url') or entry.get('url'),
+                    title=entry.get('title', 'Unknown'),
+                    duration=entry.get('duration'),
+                    thumbnail=entry.get('thumbnail'),
+                    requester=ctx.author,
+                    source='🎵 SoundCloud'
+                )
+                
+                player.queue.append(song)
+                added_count += 1
+            
+            embed = discord.Embed(
+                title="📋 SoundCloud Playlist Added",
+                description=f"Added **{added_count}** songs to queue",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Requested by", value=ctx.author.mention)
+            await msg.edit(content=None, embed=embed)
         
-        embed = discord.Embed(
-            title="✅ Added to Queue",
-            description=f"**{song.title}**",
-            color=discord.Color.green()
-        )
-        embed.add_field(name="Source", value="🎵 SoundCloud", inline=True)
-        embed.add_field(name="Position", value=f"#{len(player.queue)}", inline=True)
-        
-        if song.thumbnail:
-            embed.set_thumbnail(url=song.thumbnail)
-        
-        await msg.edit(content=None, embed=embed)
+        # Handle single song
+        else:
+            if 'entries' in data:
+                data = data['entries'][0]
+            
+            song = Song(
+                url=data.get('webpage_url') or data.get('url'),
+                title=data.get('title', 'Unknown'),
+                duration=data.get('duration'),
+                thumbnail=data.get('thumbnail'),
+                requester=ctx.author,
+                source='🎵 SoundCloud'
+            )
+            
+            player.queue.append(song)
+            
+            embed = discord.Embed(
+                title="✅ Added to Queue",
+                description=f"**{song.title}**",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Source", value="🎵 SoundCloud", inline=True)
+            embed.add_field(name="Position", value=f"#{len(player.queue)}", inline=True)
+            
+            if song.thumbnail:
+                embed.set_thumbnail(url=song.thumbnail)
+            
+            await msg.edit(content=None, embed=embed)
     
     @commands.command(name='pause')
     async def pause(self, ctx):
@@ -429,7 +529,6 @@ class Music(commands.Cog):
             player.voice_client.stop()
             await player.voice_client.disconnect()
             
-            # Clean up any remaining downloaded files
             try:
                 if os.path.exists('downloads'):
                     for file in os.listdir('downloads'):
