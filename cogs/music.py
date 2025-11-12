@@ -5,15 +5,16 @@ import yt_dlp
 from collections import deque
 import logging
 import functools
+import os
 
 logger = logging.getLogger('MusicCog')
 
-# Enhanced yt-dlp options with HLS support
+# Enhanced yt-dlp options - download for reliability
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'extractaudio': True,
     'audioformat': 'mp3',
-    'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+    'outtmpl': 'downloads/%(extractor)s-%(id)s.%(ext)s',
     'restrictfilenames': True,
     'noplaylist': False,
     'nocheckcertificate': True,
@@ -36,39 +37,35 @@ YTDL_OPTIONS = {
     'extractor_retries': 5,
     'fragment_retries': 5,
     'skip_unavailable_fragments': True,
-    'prefer_free_formats': True,
+    'keepvideo': False,
+    # Convert to a format FFmpeg can handle
     'postprocessors': [{
         'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '192',
+        'preferredcodec': 'opus',
+        'preferredquality': '128',
     }],
 }
 
-# Updated FFmpeg options for HLS streams
+# Simple FFmpeg options
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -http_persistent 0',
-    'options': '-vn -b:a 128k -bufsize 512k'
-}
-
-# Alternative FFmpeg options for problematic streams
-FFMPEG_HLS_OPTIONS = {
-    'before_options': '-protocol_whitelist file,http,https,tcp,tls,crypto -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-    'options': '-vn -b:a 128k'
+    'options': '-vn'
 }
 
 def get_ytdl():
     """Get a fresh YTDL instance"""
+    # Create downloads directory if it doesn't exist
+    os.makedirs('downloads', exist_ok=True)
     return yt_dlp.YoutubeDL(YTDL_OPTIONS)
 
 class Song:
-    def __init__(self, url, title, duration, thumbnail, requester, source='Unknown', is_hls=False):
+    def __init__(self, url, title, duration, thumbnail, requester, source='Unknown', filepath=None):
         self.url = url
         self.title = title
         self.duration = duration
         self.thumbnail = thumbnail
         self.requester = requester
         self.source = source
-        self.is_hls = is_hls
+        self.filepath = filepath
 
 class MusicPlayer:
     def __init__(self, ctx):
@@ -97,54 +94,64 @@ class MusicPlayer:
                 
                 loop = self.bot.loop or asyncio.get_event_loop()
                 
-                # Re-extract to get fresh stream URL
+                # Download the audio file
                 ytdl = get_ytdl()
+                
+                logger.info(f"Downloading: {self.current.title}")
+                
                 data = await loop.run_in_executor(
                     None,
-                    functools.partial(ytdl.extract_info, self.current.url, download=False)
+                    functools.partial(ytdl.extract_info, self.current.url, download=True)
                 )
                 
                 if not data:
-                    await self.text_channel.send(f"❌ Could not play: {self.current.title}")
+                    await self.text_channel.send(f"❌ Could not download: {self.current.title}")
                     continue
                 
                 if 'entries' in data:
                     data = data['entries'][0]
                 
-                # Get the best audio URL
-                audio_url = None
+                # Get the downloaded file path
+                filename = ytdl.prepare_filename(data)
                 
-                # Try to get direct URL first
-                if 'url' in data:
-                    audio_url = data['url']
-                elif 'formats' in data:
-                    # Get best audio format
-                    audio_formats = [f for f in data['formats'] if f.get('acodec') != 'none']
-                    if audio_formats:
-                        # Sort by quality
-                        audio_formats.sort(key=lambda x: x.get('abr', 0) or x.get('tbr', 0), reverse=True)
-                        audio_url = audio_formats[0].get('url')
+                # Check for the processed audio file
+                audio_file = None
+                base_name = os.path.splitext(filename)[0]
                 
-                if not audio_url:
-                    logger.error("No audio URL found")
-                    await self.text_channel.send(f"❌ Could not get audio stream for: {self.current.title}")
+                # Look for common audio extensions
+                for ext in ['.opus', '.mp3', '.m4a', '.webm', '.ogg']:
+                    potential_file = base_name + ext
+                    if os.path.exists(potential_file):
+                        audio_file = potential_file
+                        break
+                
+                # If not found, use original filename
+                if not audio_file:
+                    audio_file = filename
+                
+                if not os.path.exists(audio_file):
+                    logger.error(f"Audio file not found: {audio_file}")
+                    await self.text_channel.send(f"❌ Could not find audio file for: {self.current.title}")
                     continue
                 
-                # Check if it's an HLS stream
-                is_hls = '.m3u8' in audio_url or 'playlist.m3u8' in audio_url
+                logger.info(f"Playing file: {audio_file}")
                 
-                # Choose appropriate FFmpeg options
-                ffmpeg_opts = FFMPEG_HLS_OPTIONS if is_hls else FFMPEG_OPTIONS
-                
-                logger.info(f"Playing: {self.current.title} (HLS: {is_hls})")
-                
-                source = discord.FFmpegPCMAudio(audio_url, **ffmpeg_opts)
+                # Play the downloaded file
+                source = discord.FFmpegPCMAudio(audio_file, **FFMPEG_OPTIONS)
                 
                 if self.voice_client and self.voice_client.is_connected():
-                    self.voice_client.play(
-                        source,
-                        after=lambda e: self.bot.loop.call_soon_threadsafe(self.next_event.set)
-                    )
+                    def after_playing(error):
+                        # Clean up the file after playing
+                        try:
+                            if os.path.exists(audio_file):
+                                os.remove(audio_file)
+                                logger.info(f"Cleaned up: {audio_file}")
+                        except Exception as e:
+                            logger.error(f"Could not delete file: {e}")
+                        
+                        self.bot.loop.call_soon_threadsafe(self.next_event.set)
+                    
+                    self.voice_client.play(source, after=after_playing)
                     
                     # Send now playing message
                     embed = discord.Embed(
@@ -169,7 +176,7 @@ class MusicPlayer:
                     
             except Exception as e:
                 logger.error(f'Player error: {e}')
-                await self.text_channel.send(f'❌ Error playing song. Skipping to next...')
+                await self.text_channel.send(f'❌ Error playing song. Skipping...')
                 await asyncio.sleep(2)
 
 class Music(commands.Cog):
@@ -254,7 +261,7 @@ class Music(commands.Cog):
         elif platform == 'YouTube':
             msg = await ctx.send(f"🔍 Loading from **YouTube**...")
         elif platform == 'Spotify':
-            await ctx.send("❌ Spotify links are not supported yet. Try searching the song name instead!")
+            await ctx.send("❌ Spotify links are not supported. Try searching the song name instead!")
             return
         else:
             msg = await ctx.send(f"🔍 Searching for: `{query[:50]}...`")
@@ -263,7 +270,7 @@ class Music(commands.Cog):
         data = await self.extract_info(query)
         
         if not data:
-            await msg.edit(content="❌ Could not find any results!\n\n**Tip:** Try:\n• Using a SoundCloud link (more reliable)\n• A different search term\n• Using `!sc <song>` to search SoundCloud directly")
+            await msg.edit(content="❌ Could not find any results!\n\n**Tip:** Try:\n• Using a SoundCloud link: `!play <soundcloud url>`\n• Or use: `!sc <song name>` to search SoundCloud")
             return
         
         # Determine actual source from URL
@@ -275,16 +282,6 @@ class Music(commands.Cog):
         else:
             actual_source = '🎵 Audio'
         
-        # Check if HLS stream
-        is_hls = False
-        if 'url' in data:
-            is_hls = '.m3u8' in data['url']
-        elif 'formats' in data:
-            for fmt in data.get('formats', []):
-                if '.m3u8' in fmt.get('url', ''):
-                    is_hls = True
-                    break
-        
         # Create song object
         song = Song(
             url=webpage_url or data.get('url'),
@@ -292,8 +289,7 @@ class Music(commands.Cog):
             duration=data.get('duration'),
             thumbnail=data.get('thumbnail'),
             requester=ctx.author,
-            source=actual_source,
-            is_hls=is_hls
+            source=actual_source
         )
         
         # Get player
@@ -432,6 +428,16 @@ class Music(commands.Cog):
             player.queue.clear()
             player.voice_client.stop()
             await player.voice_client.disconnect()
+            
+            # Clean up any remaining downloaded files
+            try:
+                if os.path.exists('downloads'):
+                    for file in os.listdir('downloads'):
+                        file_path = os.path.join('downloads', file)
+                        os.remove(file_path)
+            except Exception as e:
+                logger.error(f"Could not clean downloads: {e}")
+            
             await ctx.send("⏹️ Stopped and disconnected!")
         else:
             await ctx.send("❌ Not connected!")
