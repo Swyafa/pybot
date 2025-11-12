@@ -1,9 +1,9 @@
 import discord
 from discord.ext import commands
 import asyncio
+import os  # <- Make sure this is imported
+import json
 import logging
-from dotenv import load_dotenv
-import os
 
 # Setup logging
 logging.basicConfig(
@@ -12,82 +12,39 @@ logging.basicConfig(
 )
 logger = logging.getLogger('DiscordBot')
 
-# Load token from .env
-load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
+# Bot Token from environment variable
+TOKEN = os.getenv('DISCORD_TOKEN')
 
-# Bot setup with intents
-intents = discord.Intents.default()
-intents.message_content = True
-intents.voice_states = True
-intents.guilds = True
-intents.members = True
+if not TOKEN:
+    raise ValueError("❌ No DISCORD_TOKEN found! Set it in Railway environment variables.")
 
-# Use mention as prefix OR "!" as backup
-def get_prefix(bot, message):
-    """Allow both mention and ! prefix"""
-    return commands.when_mentioned_or("!", "?")(bot, message)
+# Rest of your bot.py code stays the same...
+```
 
-bot = commands.Bot(
-    command_prefix=get_prefix,
-    intents=intents,
-    help_command=None
-)
+### **requirements.txt**
+```
+discord.py>=2.3.0
+yt-dlp>=2023.3.4
+PyNaCl>=1.5.0
+aiohttp>=3.9.0
+```
 
-@bot.event
-async def on_ready():
-    """Bot is ready"""
-    logger.info(f'✅ {bot.user.name} is online!')
-    logger.info(f'📊 Connected to {len(bot.guilds)} servers')
-    logger.info(f'🎵 Mention me or use ! or ? prefix')
-    
-    await bot.change_presence(
-        activity=discord.Activity(
-            type=discord.ActivityType.listening,
-            name="@mention me or use !help"
-        )
-    )
+### **Procfile** (no file extension!)
+```
+worker: python bot.py
+```
 
-@bot.event
-async def on_message(message):
-    """Process messages"""
-    if message.author.bot:
-        return
-    
-    # Log when bot is mentioned
-    if bot.user.mentioned_in(message) and message.mention_everyone is False:
-        logger.info(f'Mentioned by {message.author} in {message.guild.name}')
-    
-    await bot.process_commands(message)
+### **runtime.txt**
+```
+python-3.11.0
+```
 
-@bot.event
-async def on_command_error(ctx, error):
-    """Error handler"""
-    if isinstance(error, commands.CommandNotFound):
-        return
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ Missing argument: `{error.param.name}`")
-    else:
-        logger.error(f'Error: {error}')
-        await ctx.send(f"❌ Error: {str(error)}")
-
-async def load_cogs():
-    """Load cogs"""
-    cogs = ['cogs.music', 'cogs.utility']
-    for cog in cogs:
-        try:
-            await bot.load_extension(cog)
-            logger.info(f'✅ Loaded: {cog}')
-        except Exception as e:
-            logger.error(f'❌ Failed to load {cog}: {e}')
-
-async def main():
-    async with bot:
-        await load_cogs()
-        await bot.start(TOKEN)
-
-if __name__ == '__main__':
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info('👋 Bot stopped')
+### **.gitignore**
+```
+.env
+__pycache__/
+*.pyc
+*.log
+prefixes.json
+*.pem
+.DS_Store
