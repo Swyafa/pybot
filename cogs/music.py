@@ -151,7 +151,7 @@ class MusicPlayer:
                     
             except Exception as e:
                 logger.error(f'Player error: {e}')
-                await self.text_channel.send(f'❌ Error: Could not play song')
+                await self.text_channel.send(f'❌ error with the song dawg, fix it up')
                 await asyncio.sleep(2)
 
 class Music(commands.Cog):
@@ -227,7 +227,7 @@ class Music(commands.Cog):
         data = await self.extract_info(query)
         
         if not data:
-            await msg.edit(content="❌ Could not find any results! YouTube may be blocking requests. Try:\n• Using a SoundCloud link\n• A different search term\n• Waiting a few minutes")
+            await msg.edit(content="❌ Could not find any results! YouTube may be blocking requests. fix the flipping bot  Try:\n• Using a SoundCloud link\n• A different search term\n• Waiting a few minutes")
             return
         
         # Determine actual source from URL
@@ -293,7 +293,7 @@ class Music(commands.Cog):
         
         if player.voice_client and player.voice_client.is_playing():
             player.voice_client.pause()
-            await ctx.send("⏸️ Paused!")
+            await ctx.send("⏸️ finally i can rest my ears")
         else:
             await ctx.send("❌ Nothing is playing!")
     
@@ -304,7 +304,7 @@ class Music(commands.Cog):
         
         if player.voice_client and player.voice_client.is_paused():
             player.voice_client.resume()
-            await ctx.send("▶️ Resumed!")
+            await ctx.send("▶️ this dog shit again")
         else:
             await ctx.send("❌ Music is not paused!")
     
@@ -315,9 +315,9 @@ class Music(commands.Cog):
         
         if player.voice_client and player.voice_client.is_playing():
             player.voice_client.stop()
-            await ctx.send("⏭️ Skipped!")
+            await ctx.send("⏭️ u got shit taste")
         else:
-            await ctx.send("❌ Nothing is playing!")
+            await ctx.send("❌ no music is being played stupid")
     
     @commands.command(name='stop')
     async def stop(self, ctx):
@@ -328,9 +328,9 @@ class Music(commands.Cog):
             player.queue.clear()
             player.voice_client.stop()
             await player.voice_client.disconnect()
-            await ctx.send("⏹️ Stopped and disconnected!")
+            await ctx.send("⏹️ pissed off you hate me don't you")
         else:
-            await ctx.send("❌ Not connected!")
+            await ctx.send("❌ Not connected knobhead")
     
     @commands.command(name='queue', aliases=['q'])
     async def queue(self, ctx):
@@ -338,7 +338,7 @@ class Music(commands.Cog):
         player = self.get_player(ctx)
         
         if not player.queue and not player.current:
-            await ctx.send("❌ Queue is empty!")
+            await ctx.send("❌ queue empty u idiot")
             return
         
         embed = discord.Embed(

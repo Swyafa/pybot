@@ -89,6 +89,6 @@ if __name__ == '__main__':
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info('👋 Bot stopped')
+        logger.info('👋 Bot got kirked')
     except Exception as e:
-        logger.error(f'❌ Fatal error: {e}')
+        logger.error(f'❌ Kirk error: {e}')
