@@ -4,11 +4,10 @@ import asyncio
 import yt_dlp
 from collections import deque
 import logging
-import re
 
 logger = logging.getLogger('MusicCog')
 
-# Enhanced yt-dlp options for SoundCloud + YouTube
+# Enhanced yt-dlp options to bypass bot detection
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
     'extractaudio': True,
@@ -25,9 +24,21 @@ YTDL_OPTIONS = {
     'source_address': '0.0.0.0',
     'force-ipv4': True,
     'prefer_ffmpeg': True,
-    'keepvideo': False,
-    'extract_flat': False,
-    'skip_download': True,
+    'geo_bypass': True,
+    # Add user agent to avoid bot detection
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'referer': 'https://www.youtube.com/',
+    # Additional headers
+    'http_headers': {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-us,en;q=0.5',
+        'Sec-Fetch-Mode': 'navigate',
+    },
+    'age_limit': None,
+    'extractor_retries': 3,
+    'fragment_retries': 3,
+    'skip_unavailable_fragments': True,
 }
 
 FFMPEG_OPTIONS = {
@@ -35,7 +46,25 @@ FFMPEG_OPTIONS = {
     'options': '-vn -b:a 128k'
 }
 
-ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
+class YTDLSource:
+    """YTDL Source handler"""
+    
+    def __init__(self):
+        self.ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
+    
+    async def extract_info(self, loop, query):
+        """Extract info with retries"""
+        try:
+            data = await loop.run_in_executor(
+                None,
+                lambda: self.ytdl.extract_info(query, download=False)
+            )
+            return data
+        except Exception as e:
+            logger.error(f"Extract error: {e}")
+            return None
+
+ytdl_source = YTDLSource()
 
 class Song:
     def __init__(self, url, title, duration, thumbnail, requester, source='Unknown'):
@@ -74,10 +103,11 @@ class MusicPlayer:
                 loop = self.bot.loop or asyncio.get_event_loop()
                 
                 # Re-extract to get fresh stream URL
-                data = await loop.run_in_executor(
-                    None,
-                    lambda: ytdl.extract_info(self.current.url, download=False)
-                )
+                data = await ytdl_source.extract_info(loop, self.current.url)
+                
+                if not data:
+                    await self.text_channel.send(f"❌ Could not play: {self.current.title}")
+                    continue
                 
                 if 'entries' in data:
                     data = data['entries'][0]
@@ -121,7 +151,7 @@ class MusicPlayer:
                     
             except Exception as e:
                 logger.error(f'Player error: {e}')
-                await self.text_channel.send(f'❌ Error playing song: {str(e)}')
+                await self.text_channel.send(f'❌ Error: Could not play song')
                 await asyncio.sleep(2)
 
 class Music(commands.Cog):
@@ -154,25 +184,19 @@ class Music(commands.Cog):
         try:
             # Check if it's a direct URL
             if query.startswith('http'):
-                data = await loop.run_in_executor(
-                    None,
-                    lambda: ytdl.extract_info(query, download=False)
-                )
+                data = await ytdl_source.extract_info(loop, query)
             else:
                 # Search YouTube by default
-                data = await loop.run_in_executor(
-                    None,
-                    lambda: ytdl.extract_info(f"ytsearch:{query}", download=False)
-                )
+                data = await ytdl_source.extract_info(loop, f"ytsearch:{query}")
             
-            if 'entries' in data:
+            if data and 'entries' in data:
                 # Take first result
                 data = data['entries'][0]
             
             return data
             
         except Exception as e:
-            logger.error(f'Extract error: {e}')
+            logger.error(f'Search error: {e}')
             return None
     
     @commands.command(name='play', aliases=['p'])
@@ -193,17 +217,17 @@ class Music(commands.Cog):
         
         # Show searching message
         if platform == 'SoundCloud':
-            msg = await ctx.send(f"🔍 Loading from **SoundCloud**: `{query}`...")
+            msg = await ctx.send(f"🔍 Loading from **SoundCloud**: `{query[:50]}...`")
         elif platform == 'YouTube':
-            msg = await ctx.send(f"🔍 Loading from **YouTube**: `{query}`...")
+            msg = await ctx.send(f"🔍 Loading from **YouTube**: `{query[:50]}...`")
         else:
-            msg = await ctx.send(f"🔍 Searching YouTube for: `{query}`...")
+            msg = await ctx.send(f"🔍 Searching YouTube for: `{query[:50]}...`")
         
         # Extract song info
         data = await self.extract_info(query)
         
         if not data:
-            await msg.edit(content="❌ Could not find any results! Try a different search.")
+            await msg.edit(content="❌ Could not find any results! YouTube may be blocking requests. Try:\n• Using a SoundCloud link\n• A different search term\n• Waiting a few minutes")
             return
         
         # Determine actual source from URL
@@ -213,7 +237,7 @@ class Music(commands.Cog):
         elif 'youtube' in webpage_url.lower():
             actual_source = '📺 YouTube'
         else:
-            actual_source = '🎵 Unknown'
+            actual_source = '🎵 Audio'
         
         # Create song object
         song = Song(
@@ -260,7 +284,7 @@ class Music(commands.Cog):
             embed.set_thumbnail(url=song.thumbnail)
         
         await msg.edit(content=None, embed=embed)
-        logger.info(f'Queued ({song.source}): {song.title} in {ctx.guild.name}')
+        logger.info(f'Queued ({song.source}): {song.title}')
     
     @commands.command(name='pause')
     async def pause(self, ctx):
@@ -357,21 +381,4 @@ class Music(commands.Cog):
         embed = discord.Embed(
             title="🎵 Now Playing",
             description=f"**{player.current.title}**",
-            color=discord.Color.blue()
-        )
-        
-        embed.add_field(name="Source", value=player.current.source, inline=True)
-        
-        if player.current.duration:
-            mins, secs = divmod(player.current.duration, 60)
-            embed.add_field(name="Duration", value=f"{int(mins)}:{int(secs):02d}", inline=True)
-        
-        embed.add_field(name="Requested by", value=player.current.requester.mention, inline=True)
-        
-        if player.current.thumbnail:
-            embed.set_thumbnail(url=player.current.thumbnail)
-        
-        await ctx.send(embed=embed)
-
-async def setup(bot):
-    await bot.add_cog(Music(bot))
+            color=discord.Color.
