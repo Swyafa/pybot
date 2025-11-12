@@ -45,7 +45,7 @@ async def on_ready():
         await bot.change_presence(
             activity=discord.Activity(
                 type=discord.ActivityType.listening,
-                name="!help or ?help"
+                name="omg Sami you're so amazing!"
             )
         )
     except Exception as e:
