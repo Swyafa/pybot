@@ -10,38 +10,38 @@ class Utility(commands.Cog):
     async def ping(self, ctx):
         """Check bot latency"""
         latency = round(self.bot.latency * 1000, 2)
-        await ctx.send(f"🏓 Pong! Latency: **{latency}ms**")
+        await ctx.send(f"pong — latency: {latency}ms")
     
     @commands.command(name='help')
     async def help(self, ctx):
         """Show all commands"""
         embed = discord.Embed(
-            title="🎵 Music Bot Commands",
-            description=f"Mention me or use `!` or `?` prefix",
-            color=discord.Color.blue()
+            title="music bot commands",
+            description=f"mention me or use `!` or `?` prefix",
+            color=discord.Color.purple()
         )
         
         music = [
-            "`!play <song>` - Play a song",
-            "`!pause` - Pause music",
-            "`!resume` - Resume music",
-            "`!skip` - Skip current song",
-            "`!stop` - Stop and disconnect",
-            "`!queue` - Show queue",
-            "`!np` - Now playing"
+            "`!play <song>` - play a song",
+            "`!pause` - pause music",
+            "`!resume` - resume music",
+            "`!skip` - skip current song",
+            "`!stop` - stop and disconnect",
+            "`!queue` - show queue",
+            "`!np` - now playing"
         ]
         
         utility = [
-            "`!ping` - Check latency",
-            "`!help` - Show this message",
-            "`!info` - Bot info"
+            "`!ping` - check latency",
+            "`!help` - show this message",
+            "`!info` - bot info"
         ]
         
-        embed.add_field(name="🎵 Music", value="\n".join(music), inline=False)
-        embed.add_field(name="🔧 Utility", value="\n".join(utility), inline=False)
+        embed.add_field(name="music", value="\n".join(music), inline=False)
+        embed.add_field(name="utility", value="\n".join(utility), inline=False)
         
         bot_name = self.bot.user.name if self.bot.user else "Bot"
-        embed.set_footer(text=f"You can also mention me to use commands!")
+        embed.set_footer(text=f"you can also mention me to use commands")
         
         await ctx.send(embed=embed)
     
@@ -49,15 +49,15 @@ class Utility(commands.Cog):
     async def info(self, ctx):
         """Bot information"""
         embed = discord.Embed(
-            title="🎵 Music Bot",
-            description="A simple Discord music bot",
-            color=discord.Color.blue()
+            title="music bot",
+            description="a simple discord music bot",
+            color=discord.Color.purple()
         )
         
         stats_text = f"Servers: {len(self.bot.guilds)}\nUsers: {len(self.bot.users)}\nLatency: {round(self.bot.latency * 1000, 2)}ms"
         
         embed.add_field(
-            name="📊 Stats",
+            name="stats",
             value=stats_text,
             inline=False
         )

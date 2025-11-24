@@ -32,7 +32,7 @@ class Admin(commands.Cog):
     async def setprefix(self, ctx, new_prefix: str):
         """Set a custom prefix for this server (Admin only)"""
         if len(new_prefix) > 5:
-            await ctx.send("❌ Prefix must be 5 characters or less!")
+            await ctx.send("prefix must be 5 characters or less")
             return
         
         guild_id = str(ctx.guild.id)
@@ -44,13 +44,13 @@ class Admin(commands.Cog):
         bot_prefixes[guild_id] = new_prefix
         
         embed = discord.Embed(
-            title="✅ Prefix Updated",
-            description=f"The new prefix for this server is: `{new_prefix}`",
+            title="prefix updated",
+            description=f"the new prefix for this server is: `{new_prefix}`",
             color=discord.Color.green()
         )
         embed.add_field(
-            name="Example",
-            value=f"Try: `{new_prefix}help`",
+            name="example",
+            value=f"try: `{new_prefix}help`",
             inline=False
         )
         
@@ -61,10 +61,10 @@ class Admin(commands.Cog):
     async def setprefix_error(self, ctx, error):
         """Error handler for setprefix command"""
         if isinstance(error, commands.MissingPermissions):
-            await ctx.send("❌ You need Administrator permissions to change the prefix!")
+            await ctx.send("you need administrator permissions to change the prefix")
         elif isinstance(error, commands.MissingRequiredArgument):
             current_prefix = self.prefixes.get(str(ctx.guild.id), '!')
-            await ctx.send(f"❌ Please provide a new prefix! Current prefix: `{current_prefix}`")
+            await ctx.send(f"please provide a new prefix — current prefix: `{current_prefix}`")
     
     @commands.command(name='prefix')
     async def prefix(self, ctx):
@@ -73,13 +73,13 @@ class Admin(commands.Cog):
         current_prefix = self.prefixes.get(guild_id, '!')
         
         embed = discord.Embed(
-            title="📝 Server Prefix",
-            description=f"The current prefix for this server is: `{current_prefix}`",
-            color=discord.Color.blue()
+            title="server prefix",
+            description=f"the current prefix for this server is: `{current_prefix}`",
+            color=discord.Color.purple()
         )
         embed.add_field(
-            name="Change Prefix",
-            value=f"Admins can use: `{current_prefix}setprefix <new_prefix>`",
+            name="change prefix",
+            value=f"admins can use: `{current_prefix}setprefix <new_prefix>`",
             inline=False
         )
         
@@ -90,12 +90,12 @@ class Admin(commands.Cog):
     async def clear(self, ctx, amount: int = 10):
         """Clear a specified number of messages (Manage Messages permission required)"""
         if amount < 1 or amount > 100:
-            await ctx.send("❌ Please specify a number between 1 and 100!")
+            await ctx.send("please specify a number between 1 and 100")
             return
         
         deleted = await ctx.channel.purge(limit=amount + 1)  # +1 to include command message
         
-        confirmation = await ctx.send(f"✅ Deleted {len(deleted) - 1} messages!")
+        confirmation = await ctx.send(f"deleted {len(deleted) - 1} messages")
         await confirmation.delete(delay=3)
         
         logger.info(f'Cleared {len(deleted) - 1} messages in {ctx.guild.name}')
@@ -104,9 +104,9 @@ class Admin(commands.Cog):
     async def clear_error(self, ctx, error):
         """Error handler for clear command"""
         if isinstance(error, commands.MissingPermissions):
-            await ctx.send("❌ You need Manage Messages permission to use this command!")
+            await ctx.send("you need manage messages permission to use this command")
         elif isinstance(error, commands.BadArgument):
-            await ctx.send("❌ Please provide a valid number!")
+            await ctx.send("please provide a valid number")
 
 async def setup(bot):
     """Setup function for loading the cog"""

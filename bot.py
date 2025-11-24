@@ -16,7 +16,7 @@ logger = logging.getLogger('DiscordBot')
 TOKEN = os.getenv('DISCORD_TOKEN')
 
 if not TOKEN:
-    raise ValueError("❌ No DISCORD_TOKEN found! Set it in Railway environment variables.")
+    raise ValueError("no DISCORD_TOKEN found — set it in your environment variables.")
 
 # Bot setup with intents
 intents = discord.Intents.default()
@@ -37,15 +37,15 @@ bot = commands.Bot(
 
 @bot.event
 async def on_ready():
-    logger.info(f'✅ {bot.user.name} is online!')
-    logger.info(f'📊 Connected to {len(bot.guilds)} servers')
-    logger.info(f'🎵 Use !help or ?help for commands')
+    logger.info(f'{bot.user.name} is online')
+    logger.info(f'connected to {len(bot.guilds)} servers')
+    logger.info('use !help or ?help for commands')
     
     try:
         await bot.change_presence(
             activity=discord.Activity(
                 type=discord.ActivityType.listening,
-                name="omg Sami you're so amazing!"
+                name="listening to music"
             )
         )
     except Exception as e:
@@ -66,19 +66,19 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ Missing argument: `{error.param.name}`")
+        await ctx.send(f"missing argument: `{error.param.name}`")
     else:
-        logger.error(f'Error: {error}')
-        await ctx.send(f"❌ Error: {str(error)}")
+        logger.error(f'error: {error}')
+        await ctx.send(f"error: {str(error)}")
 
 async def load_cogs():
     cogs = ['cogs.music', 'cogs.utility']
     for cog in cogs:
         try:
             await bot.load_extension(cog)
-            logger.info(f'✅ Loaded: {cog}')
+            logger.info(f'loaded: {cog}')
         except Exception as e:
-            logger.error(f'❌ Failed to load {cog}: {e}')
+            logger.error(f'failed to load {cog}: {e}')
 
 async def main():
     async with bot:
@@ -89,6 +89,6 @@ if __name__ == '__main__':
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info('👋 Bot got kirked')
+        logger.info('bot interrupted')
     except Exception as e:
-        logger.error(f'❌ Kirk error: {e}')
+        logger.error(f'error while running bot: {e}')
